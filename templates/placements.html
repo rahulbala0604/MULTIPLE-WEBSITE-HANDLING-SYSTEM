@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Placements — OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Placements{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Ad</span> Placements</h1>
+    <p class="page-subtitle">Link campaigns to websites and define ad zones</p>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-primary" onclick="showAddPlacement()">+ New Placement</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Active Placements</span>
+    <span id="plCount" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)"></span>
+  </div>
+  <div class="table-wrap">
+    <table id="plTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Website</th>
+          <th>Campaign</th>
+          <th>Advertiser</th>
+          <th>Zone</th>
+          <th>Status</th>
+          <th>Live Ad Serve URL</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="plTableBody">
+        <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Visual Map -->
+<div class="two-col mt-24">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Placements by Zone</span></div>
+    <div class="card-body">
+      <div class="progress-list" id="zoneChart"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">Placements by Website</span></div>
+    <div class="card-body">
+      <div class="progress-list" id="websiteChart"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let placements = [];
+let websites = [];
+let campaigns = [];
+
+async function loadPlacements() {
+  [placements, websites, campaigns] = await Promise.all([
+    apiGet('/api/placements'),
+    apiGet('/api/websites'),
+    apiGet('/api/campaigns')
+  ]);
+
+  document.getElementById('plCount').textContent = placements.filter(p=>p.status==='active').length + ' active';
+
+  const tbody = document.getElementById('plTableBody');
+  if (!placements.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="empty-state-icon">⬠</div>No placements yet</td></tr>';
+  } else {
+    tbody.innerHTML = placements.map((p, i) => `<tr>
+      <td class="td-mono">${i+1}</td>
+      <td><strong>${p.website_name||'—'}</strong><br><a href="${p.website_url||'#'}" target="_blank" style="font-size:11px;color:var(--cyan)">${p.website_url||''}</a></td>
+      <td>${p.campaign_name||'—'}</td>
+      <td class="text-muted">${p.advertiser_name||'—'}</td>
+      <td><span class="badge badge-medium">${p.zone}</span></td>
+      <td>${statusBadge(p.status)}</td>
+      <td><code style="font-family:var(--font-mono);font-size:10px;color:var(--cyan)">/api/serve/${p.website_id}/${p.zone}</code></td>
+      <td class="td-mono">${(p.created_at||'').slice(0,10)}</td>
+      <td>
+        <button class="btn btn-danger btn-sm" onclick="deletePlacement('${p.id}')">Remove</button>
+      </td>
+    </tr>`).join('');
+  }
+
+  // Zone chart
+  const zones = {};
+  placements.forEach(p => { zones[p.zone] = (zones[p.zone]||0) + 1; });
+  const zoneMax = Math.max(...Object.values(zones), 1);
+  renderProgressList('zoneChart', Object.entries(zones).map(([name,value]) => ({name,value})), zoneMax);
+
+  // Website chart
+  const webMap = {};
+  placements.forEach(p => { webMap[p.website_name||p.website_id] = (webMap[p.website_name||p.website_id]||0) + 1; });
+  const webMax = Math.max(...Object.values(webMap), 1);
+  renderProgressList('websiteChart', Object.entries(webMap).map(([name,value]) => ({name,value})), webMax);
+}
+
+function showAddPlacement() {
+  const webOptions = websites.filter(w=>w.status==='active').map(w =>
+    `<option value="${w.id}">${w.name}</option>`).join('');
+  const campOptions = campaigns.filter(c=>c.status==='active').map(c =>
+    `<option value="${c.id}">${c.name}</option>`).join('');
+
+  openModal('Create New Placement', `
+    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">
+      Link a campaign to a website and define which zone the ads will appear in.
+    </p>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Website *</label>
+        <select class="form-select" id="f_website"><option value="">Select Website...</option>${webOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Campaign *</label>
+        <select class="form-select" id="f_campaign"><option value="">Select Campaign...</option>${campOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ad Zone</label>
+        <select class="form-select" id="f_zone">
+          <option value="header">Header (Top of page)</option>
+          <option value="sidebar">Sidebar (Right/Left)</option>
+          <option value="footer">Footer (Bottom)</option>
+          <option value="content">In-Content (Mid page)</option>
+          <option value="popup">Popup / Interstitial</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:6px">◈ Integration Note</div>
+      <div style="font-size:12px;color:var(--text-secondary)">
+        After creating the placement, the website will serve ads via:
+        <br><code style="color:var(--cyan);font-family:var(--font-mono)">/api/serve/{website_id}/{zone}</code>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="savePlacement()">Create Placement</button>
+    </div>
+  `);
+}
+
+async function savePlacement() {
+  const data = {
+    website_id: document.getElementById('f_website').value,
+    campaign_id: document.getElementById('f_campaign').value,
+    zone: document.getElementById('f_zone').value
+  };
+  if (!data.website_id || !data.campaign_id) { toast('Website and Campaign required', 'error'); return; }
+  const res = await apiPost('/api/placements', data);
+  if (res.success) { toast('Placement created!', 'success'); closeModal(); loadPlacements(); }
+  else { toast(res.error || 'Error', 'error'); }
+}
+
+function deletePlacement(id) {
+  confirmDelete('Remove this placement?', async () => {
+    const res = await apiDelete(`/api/placements/${id}`);
+    if (res.success) { toast('Placement removed', 'info'); loadPlacements(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadPlacements);
+</script>
+{% endblock %}

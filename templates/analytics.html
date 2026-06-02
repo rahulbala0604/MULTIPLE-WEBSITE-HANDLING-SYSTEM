@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Analytics — OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Analytics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Analytics</span> & Reports</h1>
+    <p class="page-subtitle">Deep insights into your advertising network performance</p>
+  </div>
+  <div class="btn-group">
+    <select class="form-select" id="dayFilter" onchange="loadAnalytics()">
+      <option value="7">Last 7 Days</option>
+      <option value="30" selected>Last 30 Days</option>
+      <option value="90">Last 90 Days</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">↻ Refresh</button>
+  </div>
+</div>
+
+<!-- KPI CARDS -->
+<div class="stats-grid">
+  <div class="stat-card amber">
+    <div class="stat-card-icon">◉</div>
+    <div class="stat-card-value" id="an_impressions">—</div>
+    <div class="stat-card-label">Total Impressions</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-card-icon">⬡</div>
+    <div class="stat-card-value" id="an_clicks">—</div>
+    <div class="stat-card-label">Total Clicks</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-card-icon">%</div>
+    <div class="stat-card-value" id="an_ctr">—</div>
+    <div class="stat-card-label">Average CTR</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-card-icon">◆</div>
+    <div class="stat-card-value" id="an_daily_avg">—</div>
+    <div class="stat-card-label">Daily Avg Impressions</div>
+  </div>
+</div>
+
+<!-- DUAL CHART -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Impressions vs Clicks Over Time</span>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:var(--amber)"></span>Impressions</span>
+      <span><span class="legend-dot" style="background:var(--cyan)"></span>Clicks</span>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="dualChartWrap" style="overflow-x:auto">
+      <div style="display:flex;align-items:flex-end;gap:4px;height:180px;min-width:600px" id="dualChart"></div>
+    </div>
+    <div style="display:flex;overflow-x:auto;padding-top:6px;gap:4px;min-width:600px" id="dualChartLabels"></div>
+  </div>
+</div>
+
+<!-- BREAKDOWN TABLES -->
+<div class="two-col mt-24">
+  <!-- By Website -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Performance by Website</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Website</th><th>Impressions</th><th>Clicks</th><th>CTR</th></tr>
+        </thead>
+        <tbody id="webStatsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- By Campaign -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Performance by Campaign</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Campaign</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Budget Use</th></tr>
+        </thead>
+        <tbody id="campStatsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- VISUAL BREAKDOWN -->
+<div class="two-col mt-24">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Website Traffic Share</span></div>
+    <div class="card-body">
+      <div id="webShare"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">Campaign Impression Share</span></div>
+    <div class="card-body">
+      <div id="campShare"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadAnalytics() {
+  const days = document.getElementById('dayFilter').value;
+  const data = await apiGet(`/api/analytics?days=${days}`);
+
+  // KPI
+  document.getElementById('an_impressions').textContent = fmtNum(data.total_impressions);
+  document.getElementById('an_clicks').textContent = fmtNum(data.total_clicks);
+  document.getElementById('an_ctr').textContent = fmtPct(data.ctr);
+  document.getElementById('an_daily_avg').textContent = fmtNum(Math.round(data.total_impressions / parseInt(days)));
+
+  // Dual chart
+  const maxImp = Math.max(...data.daily.map(d => d.impressions), 1);
+  const maxClk = Math.max(...data.daily.map(d => d.clicks), 1);
+  const overallMax = Math.max(maxImp, maxClk);
+
+  const chart = document.getElementById('dualChart');
+  const labels = document.getElementById('dualChartLabels');
+
+  chart.innerHTML = data.daily.map(d => `
+    <div style="flex:1;display:flex;gap:2px;align-items:flex-end;height:100%">
+      <div style="flex:1;background:linear-gradient(180deg,var(--amber),var(--amber-dark));
+                  border-radius:3px 3px 0 0;height:${Math.max(d.impressions/overallMax*100,2)}%;
+                  min-width:6px" title="${d.day}: ${fmtNum(d.impressions)} impressions"></div>
+      <div style="flex:1;background:linear-gradient(180deg,var(--cyan),#0891b2);
+                  border-radius:3px 3px 0 0;height:${Math.max(d.clicks/overallMax*100,1)}%;
+                  min-width:6px" title="${d.day}: ${fmtNum(d.clicks)} clicks"></div>
+    </div>
+  `).join('');
+
+  labels.innerHTML = data.daily.map(d => `
+    <div style="flex:1;text-align:center;font-size:9px;color:var(--text-muted);font-family:var(--font-mono)">
+      ${d.day ? d.day.slice(5) : ''}
+    </div>
+  `).join('');
+
+  // Website stats table
+  const webBody = document.getElementById('webStatsBody');
+  webBody.innerHTML = data.by_website.map(w => {
+    const ctr = w.impressions > 0 ? (w.clicks/w.impressions*100).toFixed(2) : '0.00';
+    return `<tr>
+      <td><strong>${w.name}</strong></td>
+      <td class="td-mono">${fmtNum(w.impressions)}</td>
+      <td class="td-mono">${fmtNum(w.clicks)}</td>
+      <td class="td-mono ${parseFloat(ctr)>2?'text-green':'text-amber'}">${ctr}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="empty-state">No data</td></tr>';
+
+  // Campaign stats table
+  const campBody = document.getElementById('campStatsBody');
+  campBody.innerHTML = data.by_campaign.map(c => {
+    const ctr = c.impressions > 0 ? (c.clicks/c.impressions*100).toFixed(2) : '0.00';
+    const budgetPct = c.budget > 0 ? Math.min(Math.round((c.spent/c.budget)*100),100) : 0;
+    return `<tr>
+      <td><strong>${c.name}</strong></td>
+      <td class="td-mono">${fmtNum(c.impressions)}</td>
+      <td class="td-mono">${fmtNum(c.clicks)}</td>
+      <td class="td-mono">${ctr}%</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="progress-bar-track" style="flex:1">
+            <div class="progress-bar-fill" style="width:${budgetPct}%"></div>
+          </div>
+          <span class="mono" style="font-size:11px;color:var(--text-muted);width:32px">${budgetPct}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty-state">No data</td></tr>';
+
+  // Progress lists for share
+  const webMax = Math.max(...data.by_website.map(w => w.impressions), 1);
+  renderProgressList('webShare', data.by_website.slice(0,6).map(w=>({name:w.name,value:w.impressions})), webMax);
+
+  const campMax = Math.max(...data.by_campaign.map(c => c.impressions), 1);
+  renderProgressList('campShare', data.by_campaign.slice(0,6).map(c=>({name:c.name,value:c.impressions})), campMax);
+}
+
+document.addEventListener('DOMContentLoaded', loadAnalytics);
+</script>
+{% endblock %}

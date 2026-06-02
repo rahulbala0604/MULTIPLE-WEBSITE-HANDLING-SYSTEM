@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Dashboard —OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Ad <span>Operations</span> Dashboard</h1>
+    <p class="page-subtitle">Real-time overview of your advertising network</p>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-secondary btn-sm" onclick="loadDashboard()">↻ Refresh</button>
+  </div>
+</div>
+
+<!-- STAT CARDS -->
+<div class="stats-grid" id="statsGrid">
+  <div class="stat-card amber">
+    <div class="stat-card-icon">◎</div>
+    <div class="stat-card-value" id="sc_advertisers">—</div>
+    <div class="stat-card-label">Active Advertisers</div>
+    <div class="stat-card-change change-up" id="sc_adv_change">↑ Verified</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-card-icon">◆</div>
+    <div class="stat-card-value" id="sc_campaigns">—</div>
+    <div class="stat-card-label">Live Campaigns</div>
+    <div class="stat-card-change change-up" id="sc_camp_change">↑ Running</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-card-icon">⬟</div>
+    <div class="stat-card-value" id="sc_websites">—</div>
+    <div class="stat-card-label">Partner Websites</div>
+    <div class="stat-card-change change-up">↑ Active</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-card-icon">◉</div>
+    <div class="stat-card-value" id="sc_impressions">—</div>
+    <div class="stat-card-label">Total Impressions</div>
+    <div class="stat-card-change change-up">↑ 30 days</div>
+  </div>
+  <div class="stat-card amber">
+    <div class="stat-card-icon">⬡</div>
+    <div class="stat-card-value" id="sc_clicks">—</div>
+    <div class="stat-card-label">Total Clicks</div>
+    <div class="stat-card-change">30 days</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-card-icon">%</div>
+    <div class="stat-card-value" id="sc_ctr">—</div>
+    <div class="stat-card-label">Avg CTR</div>
+    <div class="stat-card-change change-up">↑ Network wide</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-card-icon">₹</div>
+    <div class="stat-card-value" id="sc_revenue">—</div>
+    <div class="stat-card-label">Total Ad Spend</div>
+    <div class="stat-card-change change-up">↑ All time</div>
+  </div>
+</div>
+
+<!-- CHARTS ROW -->
+<div class="two-col mt-24 mb-16">
+  <!-- Impressions Chart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Daily Impressions (7 days)</span>
+      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">LAST WEEK</span>
+    </div>
+    <div class="card-body">
+      <div class="bar-chart" id="impressionsChart"></div>
+      <div class="chart-legend">
+        <span><span class="legend-dot" style="background:var(--amber)"></span>Impressions</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Website Stats -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Top Websites by Traffic</span>
+      <a href="/analytics-page" style="font-size:11px;color:var(--amber);text-decoration:none">View All →</a>
+    </div>
+    <div class="card-body">
+      <div class="progress-list" id="websiteProgressList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CAMPAIGN PERFORMANCE TABLE -->
+<div class="card mt-16">
+  <div class="card-header">
+    <span class="card-title">Campaign Performance</span>
+    <a href="/campaigns-page" class="btn btn-secondary btn-sm">View All Campaigns</a>
+  </div>
+  <div class="table-wrap">
+    <table id="campTable">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Budget</th>
+          <th>Spent</th>
+          <th>Impressions</th>
+          <th>Clicks</th>
+          <th>CTR</th>
+          <th>Efficiency</th>
+        </tr>
+      </thead>
+      <tbody id="campTableBody">
+        <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+  const data = await apiGet('/api/dashboard');
+
+  document.getElementById('sc_advertisers').textContent = data.total_advertisers;
+  document.getElementById('sc_campaigns').textContent = data.active_campaigns;
+  document.getElementById('sc_websites').textContent = data.total_websites;
+  document.getElementById('sc_impressions').textContent = fmtNum(data.total_impressions);
+  document.getElementById('sc_clicks').textContent = fmtNum(data.total_clicks);
+  document.getElementById('sc_ctr').textContent = fmtPct(data.ctr);
+  document.getElementById('sc_revenue').textContent = fmtCurrency(data.total_revenue);
+
+  // Bar chart
+  const chartData = data.daily_impressions.map(d => ({
+    label: d.day ? d.day.slice(5) : '',
+    value: d.count
+  }));
+  renderBarChart('impressionsChart', chartData, null, 'bar-imp');
+
+  // Website progress
+  const max = Math.max(...data.website_stats.map(w => w.impressions), 1);
+  renderProgressList('websiteProgressList', data.website_stats.map(w => ({
+    name: w.name, value: w.impressions
+  })), max);
+
+  // Campaign table
+  const tbody = document.getElementById('campTableBody');
+  if (data.campaign_performance.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No data yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.campaign_performance.map(c => {
+    const ctr = c.impressions > 0 ? (c.clicks / c.impressions * 100).toFixed(2) : '0.00';
+    const efficiency = c.budget > 0 ? Math.min(Math.round((c.spent/c.budget)*100), 100) : 0;
+    return `<tr>
+      <td><strong>${c.name}</strong></td>
+      <td class="td-mono">${fmtCurrency(c.budget)}</td>
+      <td class="td-mono text-amber">${fmtCurrency(c.spent)}</td>
+      <td class="td-mono">${fmtNum(c.impressions)}</td>
+      <td class="td-mono">${fmtNum(c.clicks)}</td>
+      <td class="td-mono">${ctr}%</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="progress-bar-track" style="flex:1">
+            <div class="progress-bar-fill" style="width:${efficiency}%"></div>
+          </div>
+          <span class="mono" style="font-size:11px;color:var(--text-muted)">${efficiency}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}

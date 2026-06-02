@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}OMKAR ADDS PRODUCTION — OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Ad Creatives{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Ad</span> Creatives</h1>
+    <p class="page-subtitle">Design and manage your advertising banners and creatives</p>
+  </div>
+  <div class="btn-group">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search ads..." oninput="filterCards()">
+    </div>
+    <select class="form-select" id="filterCamp" onchange="filterCards()" style="width:200px">
+      <option value="">All Campaigns</option>
+    </select>
+    <button class="btn btn-primary" onclick="showAddAd()">+ Create Ad</button>
+  </div>
+</div>
+
+<div id="adsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
+<div id="adsTable" style="display:none">
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Ad</th><th>Type</th><th>Size</th><th>Campaign</th><th>Advertiser</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="adsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ads = [];
+let campaigns = [];
+
+async function loadAds() {
+  [ads, campaigns] = await Promise.all([
+    apiGet('/api/ads'),
+    apiGet('/api/campaigns')
+  ]);
+
+  // Populate campaign filter
+  const campSel = document.getElementById('filterCamp');
+  campSel.innerHTML = '<option value="">All Campaigns</option>' +
+    campaigns.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+  renderAdsGrid(ads);
+}
+
+function renderAdsGrid(adsArr) {
+  const grid = document.getElementById('adsGrid');
+  if (!adsArr.length) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">◇</div>No ad creatives yet. Create your first ad!</div>';
+    return;
+  }
+
+  const typeIcons = { banner: '▬', rectangle: '▭', square: '■', video: '▷', text: 'T' };
+  const sizeColors = { '728x90': 'var(--amber)', '300x250': 'var(--cyan)', '250x250': 'var(--green)' };
+
+  grid.innerHTML = adsArr.map(ad => {
+    const ctr = ad.impressions > 0 ? (ad.clicks / ad.impressions * 100).toFixed(2) : '0.00';
+    const color = sizeColors[ad.size] || 'var(--purple)';
+    return `
+    <div class="ad-card" id="adcard_${ad.id}">
+      <div class="ad-card-img" style="background:linear-gradient(135deg,var(--bg-hover),var(--bg-card))">
+        <div style="text-align:center">
+          <div style="font-size:36px;color:${color};margin-bottom:6px">${typeIcons[ad.ad_type]||'◇'}</div>
+          <div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">${ad.size}</div>
+        </div>
+      </div>
+      <div class="ad-card-body">
+        <div class="ad-card-title">${ad.title}</div>
+        <div class="ad-card-meta">${ad.description || 'No description'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;text-align:center">
+          <div style="background:var(--bg-hover);border-radius:6px;padding:6px">
+            <div style="font-size:13px;font-weight:700;font-family:var(--font-mono)">${fmtNum(ad.impressions)}</div>
+            <div style="font-size:9px;color:var(--text-muted);margin-top:2px">IMPR.</div>
+          </div>
+          <div style="background:var(--bg-hover);border-radius:6px;padding:6px">
+            <div style="font-size:13px;font-weight:700;font-family:var(--font-mono)">${fmtNum(ad.clicks)}</div>
+            <div style="font-size:9px;color:var(--text-muted);margin-top:2px">CLICKS</div>
+          </div>
+          <div style="background:var(--bg-hover);border-radius:6px;padding:6px">
+            <div style="font-size:13px;font-weight:700;font-family:var(--font-mono);color:var(--amber)">${ctr}%</div>
+            <div style="font-size:9px;color:var(--text-muted);margin-top:2px">CTR</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-muted)">${ad.campaign_name||'No Campaign'} • ${ad.advertiser_name||''}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          ${statusBadge(ad.status)}
+          <div class="btn-group">
+            <button class="btn btn-secondary btn-sm" onclick="previewAd('${ad.id}')">Preview</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAd('${ad.id}', '${ad.title}')">✕</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterCards() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const campId = document.getElementById('filterCamp').value;
+  const filtered = ads.filter(ad => {
+    const matchQ = !q || (ad.title + ad.description + ad.campaign_name).toLowerCase().includes(q);
+    const matchCamp = !campId || ad.campaign_id === campId;
+    return matchQ && matchCamp;
+  });
+  renderAdsGrid(filtered);
+}
+
+function showAddAd() {
+  const campOptions = campaigns.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  openModal('Create Ad Creative', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group full">
+        <label class="form-label">Ad Title *</label>
+        <input class="form-input" id="f_title" placeholder="Summer Sale — Shop Now!">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Campaign *</label>
+        <select class="form-select" id="f_camp"><option value="">Select...</option>${campOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ad Type</label>
+        <select class="form-select" id="f_type">
+          <option value="banner">Banner</option>
+          <option value="rectangle">Rectangle</option>
+          <option value="square">Square</option>
+          <option value="text">Text</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Size</label>
+        <select class="form-select" id="f_size">
+          <option value="728x90">728x90 (Leaderboard)</option>
+          <option value="300x250">300x250 (Medium Rectangle)</option>
+          <option value="250x250">250x250 (Square)</option>
+          <option value="320x50">320x50 (Mobile Banner)</option>
+          <option value="160x600">160x600 (Wide Skyscraper)</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Destination URL</label>
+        <input class="form-input" id="f_url" placeholder="https://yourwebsite.com/landing-page">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Image URL (optional)</label>
+        <input class="form-input" id="f_img" placeholder="https://example.com/banner.jpg">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Description / Ad Copy</label>
+        <textarea class="form-textarea" id="f_desc" placeholder="Compelling ad copy that drives clicks..."></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAd()">Create Ad</button>
+    </div>
+  `);
+}
+
+async function saveAd() {
+  const data = {
+    title: document.getElementById('f_title').value,
+    campaign_id: document.getElementById('f_camp').value,
+    ad_type: document.getElementById('f_type').value,
+    size: document.getElementById('f_size').value,
+    click_url: document.getElementById('f_url').value,
+    image_url: document.getElementById('f_img').value,
+    description: document.getElementById('f_desc').value,
+  };
+  if (!data.title || !data.campaign_id) { toast('Title and Campaign required', 'error'); return; }
+  const res = await apiPost('/api/ads', data);
+  if (res.success) { toast('Ad created successfully!', 'success'); closeModal(); loadAds(); }
+  else { toast(res.error || 'Error', 'error'); }
+}
+
+function previewAd(id) {
+  const ad = ads.find(a => a.id === id);
+  if (!ad) return;
+  const sizeMap = { '728x90': '728x90', '300x250': '300x250', '250x250': '250x250' };
+  const [w, h] = (ad.size || '300x250').split('x');
+  openModal(`Ad Preview — ${ad.title}`, `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:16px">
+      <div style="background:var(--bg-surface);border:1px dashed var(--border-lit);border-radius:8px;
+                  width:${Math.min(parseInt(w),560)}px;height:${Math.min(parseInt(h),300)}px;
+                  display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+        ${ad.image_url ? `<img src="${ad.image_url}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">` : ''}
+        <div style="text-align:center;padding:20px;z-index:2">
+          <div style="font-size:18px;font-weight:700;color:var(--amber);margin-bottom:6px">${ad.title}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">${ad.description || ''}</div>
+          <div style="margin-top:12px;background:var(--amber);color:#000;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:700;display:inline-block">CLICK HERE</div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">
+        ${ad.size} • ${ad.ad_type} • ${ad.campaign_name}
+      </div>
+    </div>
+  `);
+}
+
+function deleteAd(id, title) {
+  confirmDelete(`Delete ad creative <strong>${title}</strong>?`, async () => {
+    const res = await apiDelete(`/api/ads/${id}`);
+    if (res.success) { toast('Ad removed', 'info'); loadAds(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadAds);
+</script>
+{% endblock %}

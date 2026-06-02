@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — AdMatrix Pro{% endblock %}
+{% block breadcrumb %}/ Campaigns{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Campaign</span> Management</h1>
+    <p class="page-subtitle">Create and monitor advertising campaigns</p>
+  </div>
+  <div class="btn-group">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search campaigns..." oninput="filterTable('searchInput','campTable')">
+    </div>
+    <button class="btn btn-primary" onclick="showAddCampaign()">+ New Campaign</button>
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="stats-grid" id="campStats">
+  <div class="stat-card amber">
+    <div class="stat-card-value" id="cs_total">—</div>
+    <div class="stat-card-label">Total Campaigns</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-card-value" id="cs_active">—</div>
+    <div class="stat-card-label">Active</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-card-value" id="cs_budget">—</div>
+    <div class="stat-card-label">Total Budget</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-card-value" id="cs_spent">—</div>
+    <div class="stat-card-label">Total Spent</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">All Campaigns</span>
+  </div>
+  <div class="table-wrap">
+    <table id="campTable">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Advertiser</th>
+          <th>Budget</th>
+          <th>Spent</th>
+          <th>CPM</th>
+          <th>CPC</th>
+          <th>Impressions</th>
+          <th>Clicks</th>
+          <th>CTR</th>
+          <th>Status</th>
+          <th>Period</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="campTableBody">
+        <tr><td colspan="12" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let campaigns = [];
+let advertisers = [];
+
+async function loadCampaigns() {
+  [campaigns, advertisers] = await Promise.all([
+    apiGet('/api/campaigns'),
+    apiGet('/api/advertisers')
+  ]);
+
+  const total = campaigns.length;
+  const active = campaigns.filter(c => c.status === 'active').length;
+  const totalBudget = campaigns.reduce((s, c) => s + (c.budget || 0), 0);
+  const totalSpent = campaigns.reduce((s, c) => s + (c.spent || 0), 0);
+
+  document.getElementById('cs_total').textContent = total;
+  document.getElementById('cs_active').textContent = active;
+  document.getElementById('cs_budget').textContent = fmtCurrency(totalBudget);
+  document.getElementById('cs_spent').textContent = fmtCurrency(totalSpent);
+
+  const tbody = document.getElementById('campTableBody');
+  if (!campaigns.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-state"><div class="empty-state-icon">◆</div>No campaigns yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = campaigns.map(c => {
+    const ctr = c.impressions > 0 ? (c.clicks / c.impressions * 100).toFixed(2) : '0.00';
+    const pctSpent = c.budget > 0 ? Math.min(Math.round((c.spent/c.budget)*100),100) : 0;
+    return `<tr>
+      <td><strong>${c.name}</strong><br><span class="td-mono" style="font-size:10px">${c.id}</span></td>
+      <td class="text-muted">${c.advertiser_name || '—'}</td>
+      <td class="td-mono">${fmtCurrency(c.budget)}</td>
+      <td>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span class="td-mono text-amber">${fmtCurrency(c.spent)}</span>
+          <div class="progress-bar-track" style="width:80px">
+            <div class="progress-bar-fill" style="width:${pctSpent}%"></div>
+          </div>
+        </div>
+      </td>
+      <td class="td-mono">₹${c.cpm}</td>
+      <td class="td-mono">₹${c.cpc}</td>
+      <td class="td-mono">${fmtNum(c.impressions)}</td>
+      <td class="td-mono">${fmtNum(c.clicks)}</td>
+      <td class="td-mono">${ctr}%</td>
+      <td>${statusBadge(c.status)}</td>
+      <td class="td-mono" style="font-size:11px">${(c.start_date||'').slice(0,10)}<br>→ ${(c.end_date||'').slice(0,10)}</td>
+      <td>
+        <div class="btn-group">
+          <button class="btn btn-secondary btn-sm" onclick="editCampaign('${c.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteCampaign('${c.id}', '${c.name}')">Pause</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function showAddCampaign() {
+  const advOptions = advertisers.map(a =>
+    `<option value="${a.id}">${a.name}</option>`).join('');
+  openModal('Create New Campaign', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group full">
+        <label class="form-label">Campaign Name *</label>
+        <input class="form-input" id="f_name" placeholder="Summer Sale 2025">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Advertiser *</label>
+        <select class="form-select" id="f_adv_id"><option value="">Select...</option>${advOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Budget (₹)</label>
+        <input class="form-input" id="f_budget" type="number" placeholder="10000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CPM (₹ per 1000 views)</label>
+        <input class="form-input" id="f_cpm" type="number" step="0.1" placeholder="2.0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CPC (₹ per click)</label>
+        <input class="form-input" id="f_cpc" type="number" step="0.1" placeholder="0.5">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Start Date</label>
+        <input class="form-input" id="f_start" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">End Date</label>
+        <input class="form-input" id="f_end" type="date">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Description</label>
+        <textarea class="form-textarea" id="f_desc" placeholder="Campaign description..."></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCampaign()">Create Campaign</button>
+    </div>
+  `);
+}
+
+async function saveCampaign(editId = null) {
+  const data = {
+    name: document.getElementById('f_name').value,
+    advertiser_id: document.getElementById('f_adv_id')?.value,
+    budget: parseFloat(document.getElementById('f_budget').value) || 0,
+    cpm: parseFloat(document.getElementById('f_cpm').value) || 2.0,
+    cpc: parseFloat(document.getElementById('f_cpc').value) || 0.5,
+    start_date: document.getElementById('f_start').value,
+    end_date: document.getElementById('f_end').value,
+    description: document.getElementById('f_desc').value,
+  };
+  if (editId) data.status = document.getElementById('f_status')?.value || 'active';
+  if (!data.name) { toast('Campaign name required', 'error'); return; }
+
+  const url = editId ? `/api/campaigns/${editId}` : '/api/campaigns';
+  const fn = editId ? apiPut : apiPost;
+  const res = await fn(url, data);
+  if (res.success) {
+    toast(editId ? 'Campaign updated!' : 'Campaign created!', 'success');
+    closeModal(); loadCampaigns();
+  } else { toast(res.error || 'Error', 'error'); }
+}
+
+function editCampaign(id) {
+  const c = campaigns.find(x => x.id === id);
+  if (!c) return;
+  const advOptions = advertisers.map(a =>
+    `<option value="${a.id}" ${a.id===c.advertiser_id?'selected':''}>${a.name}</option>`).join('');
+  openModal('Edit Campaign', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group full">
+        <label class="form-label">Campaign Name *</label>
+        <input class="form-input" id="f_name" value="${c.name}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Advertiser</label>
+        <select class="form-select" id="f_adv_id">${advOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Budget (₹)</label>
+        <input class="form-input" id="f_budget" type="number" value="${c.budget}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CPM</label>
+        <input class="form-input" id="f_cpm" type="number" step="0.1" value="${c.cpm}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CPC</label>
+        <input class="form-input" id="f_cpc" type="number" step="0.1" value="${c.cpc}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Start Date</label>
+        <input class="form-input" id="f_start" type="date" value="${(c.start_date||'').slice(0,10)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">End Date</label>
+        <input class="form-input" id="f_end" type="date" value="${(c.end_date||'').slice(0,10)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f_status">
+          <option ${c.status==='active'?'selected':''}>active</option>
+          <option ${c.status==='paused'?'selected':''}>paused</option>
+          <option ${c.status==='inactive'?'selected':''}>inactive</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Description</label>
+        <textarea class="form-textarea" id="f_desc">${c.description||''}</textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCampaign('${c.id}')">Update</button>
+    </div>
+  `);
+}
+
+function deleteCampaign(id, name) {
+  confirmDelete(`Pause campaign <strong>${name}</strong>?`, async () => {
+    const res = await apiDelete(`/api/campaigns/${id}`);
+    if (res.success) { toast('Campaign paused', 'info'); loadCampaigns(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadCampaigns);
+</script>
+{% endblock %}

@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Websites — OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Websites{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Partner</span> Websites</h1>
+    <p class="page-subtitle">Register and manage publisher websites in your network</p>
+  </div>
+  <div class="btn-group">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search websites..." oninput="filterTable('searchInput','webTable')">
+    </div>
+    <button class="btn btn-primary" onclick="showAddWebsite()">+ Register Website</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Registered Publisher Network</span>
+    <span id="webCount" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)"></span>
+  </div>
+  <div class="table-wrap">
+    <table id="webTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Website</th>
+          <th>URL</th>
+          <th>Category</th>
+          <th>Traffic Tier</th>
+          <th>Status</th>
+          <th>API Key</th>
+          <th>Integration Code</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="webTableBody">
+        <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let websites = [];
+
+async function loadWebsites() {
+  websites = await apiGet('/api/websites');
+  document.getElementById('webCount').textContent = websites.length + ' websites';
+  const tbody = document.getElementById('webTableBody');
+  if (!websites.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="empty-state-icon">⬟</div>No websites registered yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = websites.map((w, i) => `
+    <tr>
+      <td class="td-mono">${i+1}</td>
+      <td><strong>${w.name}</strong></td>
+      <td><a href="${w.url}" target="_blank" style="color:var(--cyan);font-size:12px">${w.url}</a></td>
+      <td>${w.category || '—'}</td>
+      <td>${statusBadge(w.traffic_tier || 'medium')}</td>
+      <td>${statusBadge(w.status)}</td>
+      <td><code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-surface);padding:2px 6px;border-radius:4px;color:var(--amber)">${w.api_key}</code></td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="showIntegrationCode('${w.id}', '${w.name}', '${w.api_key}')">
+          &lt;/&gt; Embed Code
+        </button>
+      </td>
+      <td>
+        <div class="btn-group">
+          <button class="btn btn-secondary btn-sm" onclick="editWebsite('${w.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteWebsite('${w.id}', '${w.name}')">Del</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showAddWebsite() {
+  openModal('Register New Website', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group full">
+        <label class="form-label">Website Name *</label>
+        <input class="form-input" id="f_name" placeholder="My Awesome Website">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">URL *</label>
+        <input class="form-input" id="f_url" placeholder="https://mywebsite.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="f_cat">
+          <option>News</option>
+          <option>Technology</option>
+          <option>E-commerce</option>
+          <option>Entertainment</option>
+          <option>Sports</option>
+          <option>Food</option>
+          <option>Travel</option>
+          <option>Education</option>
+          <option>Health</option>
+          <option>Finance</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Traffic Tier</label>
+        <select class="form-select" id="f_tier">
+          <option value="high">High (10K+ daily)</option>
+          <option value="medium" selected>Medium (1K-10K daily)</option>
+          <option value="low">Low (&lt;1K daily)</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Owner / Contact</label>
+        <input class="form-input" id="f_owner" placeholder="Website owner name">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWebsite()">Register Website</button>
+    </div>
+  `);
+}
+
+async function saveWebsite(editId = null) {
+  const data = {
+    name: document.getElementById('f_name').value,
+    url: document.getElementById('f_url').value,
+    category: document.getElementById('f_cat')?.value,
+    traffic_tier: document.getElementById('f_tier').value,
+    owner: document.getElementById('f_owner')?.value,
+  };
+  if (editId) data.status = document.getElementById('f_status')?.value || 'active';
+  if (!data.name || !data.url) { toast('Name and URL are required', 'error'); return; }
+
+  const url = editId ? `/api/websites/${editId}` : '/api/websites';
+  const fn = editId ? apiPut : apiPost;
+  const res = await fn(url, data);
+  if (res.success) {
+    toast(editId ? 'Website updated!' : 'Website registered! API Key: ' + (res.api_key || ''), 'success');
+    closeModal(); loadWebsites();
+  } else { toast(res.error || 'Error', 'error'); }
+}
+
+function editWebsite(id) {
+  const w = websites.find(x => x.id === id);
+  if (!w) return;
+  openModal('Edit Website', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group full">
+        <label class="form-label">Website Name *</label>
+        <input class="form-input" id="f_name" value="${w.name}">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">URL *</label>
+        <input class="form-input" id="f_url" value="${w.url}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="f_cat">
+          ${['News','Technology','E-commerce','Entertainment','Sports','Food','Travel','Education','Health','Finance','Other']
+            .map(c => `<option ${c===w.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Traffic Tier</label>
+        <select class="form-select" id="f_tier">
+          <option value="high" ${w.traffic_tier==='high'?'selected':''}>High</option>
+          <option value="medium" ${w.traffic_tier==='medium'?'selected':''}>Medium</option>
+          <option value="low" ${w.traffic_tier==='low'?'selected':''}>Low</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f_status">
+          <option ${w.status==='active'?'selected':''}>active</option>
+          <option ${w.status==='inactive'?'selected':''}>inactive</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWebsite('${w.id}')">Update</button>
+    </div>
+  `);
+}
+
+function showIntegrationCode(websiteId, websiteName, apiKey) {
+  const code = `<!-- AdMatrix Pro — ${websiteName} -->
+<!-- Place this in your &lt;head&gt; section -->
+<script>
+(function() {
+  var adZones = ['header', 'sidebar', 'footer'];
+  adZones.forEach(function(zone) {
+    var el = document.querySelector('[data-admatrix="'+zone+'"]');
+    if (!el) return;
+    fetch('/api/serve/${websiteId}/'+zone)
+      .then(r => r.json())
+      .then(function(ad) {
+        el.innerHTML = '<a href="'+ad.click_url+'" target="_blank" '
+          + 'style="display:block;width:100%;text-align:center;padding:12px;'
+          + 'background:linear-gradient(135deg,#1a1a2e,#16213e);color:#f59e0b;'
+          + 'font-family:sans-serif;text-decoration:none;border-radius:8px">'
+          + '<strong>'+ad.title+'</strong><br>'
+          + '<small style="color:#94a3b8">'+ad.description+'</small></a>';
+      });
+  });
+})();
+&lt;/script&gt;
+
+<!-- Add to your HTML where you want ads -->
+<div data-admatrix="header" style="width:100%;min-height:90px"></div>
+<div data-admatrix="sidebar" style="width:300px;min-height:250px"></div>
+<div data-admatrix="footer" style="width:100%;min-height:90px"></div>`;
+
+  openModal(`Integration Code — ${websiteName}`, `
+    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px">
+      Copy and paste this code into your website to display ads. The ads will automatically
+      load and track impressions/clicks.
+    </p>
+    <div style="position:relative">
+      <pre style="background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;
+                  padding:16px;font-family:var(--font-mono);font-size:11px;
+                  color:var(--text-primary);overflow-x:auto;white-space:pre-wrap;
+                  line-height:1.6">${code}</pre>
+    </div>
+    <div style="margin-top:12px;padding:10px;background:var(--amber-glow);border-radius:6px;
+                border:1px solid rgba(245,158,11,0.2);font-size:12px;color:var(--amber)">
+      ◈ API Key: <strong style="font-family:var(--font-mono)">${apiKey}</strong> — Keep this secure!
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.querySelector('pre').textContent).then(()=>toast('Code copied!','success'))">
+        Copy Code
+      </button>
+    </div>
+  `);
+}
+
+function deleteWebsite(id, name) {
+  confirmDelete(`Remove website <strong>${name}</strong> from network?`, async () => {
+    const res = await apiDelete(`/api/websites/${id}`);
+    if (res.success) { toast('Website removed', 'info'); loadWebsites(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadWebsites);
+</script>
+{% endblock %}

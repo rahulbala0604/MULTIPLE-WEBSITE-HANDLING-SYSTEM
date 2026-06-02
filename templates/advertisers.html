@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Advertisers — OMKAR ADDS PRODUCTION{% endblock %}
+{% block breadcrumb %}/ Advertisers{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><span>Advertiser</span> Management</h1>
+    <p class="page-subtitle">Manage all registered advertisers and their budgets</p>
+  </div>
+  <div class="btn-group">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search advertisers..." oninput="filterTable('searchInput','advTable')">
+    </div>
+    <button class="btn btn-primary" onclick="showAddAdvertiser()">+ Add Advertiser</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">All Advertisers</span>
+    <span id="advCount" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)"></span>
+  </div>
+  <div class="table-wrap">
+    <table id="advTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Company</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Budget</th>
+          <th>Status</th>
+          <th>Joined</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="advTableBody">
+        <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let advertisers = [];
+
+async function loadAdvertisers() {
+  advertisers = await apiGet('/api/advertisers');
+  document.getElementById('advCount').textContent = advertisers.length + ' records';
+  const tbody = document.getElementById('advTableBody');
+  if (!advertisers.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="empty-state-icon">◎</div>No advertisers yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = advertisers.map((a, i) => `
+    <tr>
+      <td class="td-mono">${i+1}</td>
+      <td><strong>${a.name}</strong></td>
+      <td class="text-muted">${a.company || '—'}</td>
+      <td class="td-mono">${a.email}</td>
+      <td class="td-mono">${a.phone || '—'}</td>
+      <td class="td-mono text-amber">${fmtCurrency(a.budget)}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td class="td-mono">${a.created_at ? a.created_at.slice(0,10) : '—'}</td>
+      <td>
+        <div class="btn-group">
+          <button class="btn btn-secondary btn-sm" onclick="editAdvertiser('${a.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteAdvertiser('${a.id}', '${a.name}')">Del</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showAddAdvertiser() {
+  openModal('Add New Advertiser', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Full Name *</label>
+        <input class="form-input" id="f_name" placeholder="John Doe">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email *</label>
+        <input class="form-input" id="f_email" type="email" placeholder="email@company.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Company</label>
+        <input class="form-input" id="f_company" placeholder="Company Name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input class="form-input" id="f_phone" placeholder="+91-9876543210">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Budget (₹)</label>
+        <input class="form-input" id="f_budget" type="number" placeholder="50000">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAdvertiser()">Save Advertiser</button>
+    </div>
+  `);
+}
+
+async function saveAdvertiser(editId = null) {
+  const data = {
+    name: document.getElementById('f_name').value,
+    email: document.getElementById('f_email').value,
+    company: document.getElementById('f_company').value,
+    phone: document.getElementById('f_phone').value,
+    budget: parseFloat(document.getElementById('f_budget').value) || 0
+  };
+  if (!data.name || !data.email) { toast('Name and Email are required', 'error'); return; }
+
+  const url = editId ? `/api/advertisers/${editId}` : '/api/advertisers';
+  const fn = editId ? apiPut : apiPost;
+  if (editId) data.status = document.getElementById('f_status')?.value || 'active';
+
+  const res = await fn(url, data);
+  if (res.success) {
+    toast(editId ? 'Advertiser updated!' : 'Advertiser added!', 'success');
+    closeModal();
+    loadAdvertisers();
+  } else {
+    toast(res.error || 'Error occurred', 'error');
+  }
+}
+
+function editAdvertiser(id) {
+  const a = advertisers.find(x => x.id === id);
+  if (!a) return;
+  openModal('Edit Advertiser', `
+    <div class="form-grid form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Full Name *</label>
+        <input class="form-input" id="f_name" value="${a.name}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email *</label>
+        <input class="form-input" id="f_email" value="${a.email}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Company</label>
+        <input class="form-input" id="f_company" value="${a.company || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input class="form-input" id="f_phone" value="${a.phone || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Budget (₹)</label>
+        <input class="form-input" id="f_budget" type="number" value="${a.budget}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f_status">
+          <option ${a.status==='active'?'selected':''}>active</option>
+          <option ${a.status==='inactive'?'selected':''}>inactive</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAdvertiser('${a.id}')">Update</button>
+    </div>
+  `);
+}
+
+function deleteAdvertiser(id, name) {
+  confirmDelete(`Delete advertiser <strong>${name}</strong>? This cannot be undone.`, async () => {
+    const res = await apiDelete(`/api/advertisers/${id}`);
+    if (res.success) { toast('Advertiser removed', 'info'); loadAdvertisers(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadAdvertisers);
+</script>
+{% endblock %}
